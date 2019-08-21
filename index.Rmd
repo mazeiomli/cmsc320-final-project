@@ -1,0 +1,428 @@
+# CMSC320 Final Project
+
+## Introduction
+
+We will look at data from Airbnb. Airbnb is a platform where individuals can rent out their homes to prospective tenants. Airbnb receives a commission for each transaction. Airbnb is an extremely popular service: on average, around two million people stay on lodgings arranged by Airbnb [source](https://press.airbnb.com/fast-facts/). Furthermore, Airbnb is valued at $31 billion dollars [source](https://www.vox.com/2018/10/26/18029008/pivot-kara-swisher-scott-galloway-uber-airbnb-apple-oculus-facebook-vr-privacy-saudi-money-podcast). 
+
+I will specifically look at Airbnb data for New York City [data](http://insideairbnb.com/get-the-data.html). New York City (NYC) is an extremely popular tourist destination, and tourists may book an Airbnb room or apartment during their stay. As a person interested in visiting NYC, understanding Airbnb rates will help me find a cheap, yet convenient place to stay. This data is also relevant for Airbnb hosts, who can see the Airbnb listings in their area and adjust the price accordingly.
+
+This data also serves a more meaningful purpose. As a provider of housing, Airbnb affects the housing situation in the city. This data was meant to give insight into how Airbnb listings affects the housing market of the city [source](http://insideairbnb.com/about.html).
+
+
+## Exploring the Dataset
+
+The Airbnb website provides an [interactive geographic data visualization](http://insideairbnb.com/new-york-city/) of the NYC dataset. This visualization provides a good overview of the dataset. 
+
+After viewing the visualization, I had thought of a few questions.
+
+1. Is there a relationship between availability of a listing and its price? 
+
+2. Does the borough a listing is in affect availability and price? (A [burough](https://en.wikipedia.org/wiki/Boroughs_of_New_York_City) is similar to a county in NYC)
+
+## Importing the Data
+
+First, I downloaded the NYC [data](http://insideairbnb.com/get-the-data.html) that was compile on May 3rd, 2019. The data is 177 megabytes, so I will read it into RStudio directly.
+
+I took around the first hundred entries and put it in Google Sheets. I was able to see the attributes of the dataset. For the purposes of the analyses, many of the columns can be ignored. Some columns have text data in them, such as a description of the listing. I will not use this data, so I ignored the column when parsing the data in.
+
+I will read in the csv file with [read_csv()](https://readr.tidyverse.org/reference/read_delim.html).
+
+
+
+```{r, message=FALSE}
+# loading code goes here
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(readr)
+
+library(scales)
+library(DBI)
+library(broom)
+```
+
+```{r load_data}
+# We skip, or exclude, certain columns
+listings <- read_csv("~/cmsc320/final/data/listings.csv",
+    col_types = cols(access = col_skip(),
+        amenities = col_skip(), bed_type = col_skip(),
+        calendar_last_scraped = col_skip(),
+        calendar_updated = col_skip(), cancellation_policy = col_skip(),
+        description = col_skip(), experiences_offered = col_skip(),
+        first_review = col_skip(), host_about = col_skip(),
+        host_acceptance_rate = col_skip(),
+        host_has_profile_pic = col_skip(),
+        host_identity_verified = col_skip(),
+        host_location = col_skip(), host_name = col_skip(),
+        host_picture_url = col_skip(), host_response_time = col_skip(),
+        host_since = col_skip(), host_thumbnail_url = col_skip(),
+        host_url = col_skip(), host_verifications = col_skip(),
+        house_rules = col_skip(), interaction = col_skip(),
+        is_business_travel_ready = col_logical(),
+        jurisdiction_names = col_skip(),
+        last_review = col_skip(), last_scraped = col_skip(),
+        license = col_skip(), listing_url = col_skip(),
+        medium_url = col_skip(), name = col_skip(),
+        neighborhood_overview = col_skip(),
+        notes = col_skip(), picture_url = col_skip(),
+        require_guest_phone_verification = col_skip(),
+        require_guest_profile_picture = col_skip(),
+        requires_license = col_skip(), scrape_id = col_skip(),
+        space = col_skip(), square_feet = col_skip(),
+        summary = col_skip(), thumbnail_url = col_skip(),
+        transit = col_skip(), xl_picture_url = col_skip()
+        ))
+
+
+
+
+
+```
+
+We see that there were a few parsing failures. We can disregard these since there are so few (9 parsing errors out of 48941 entities). The zip code for these entities will just be NA.
+
+
+## Getting the Data
+
+Recall our question:
+
+**Is there a relationship between availability of a listing and its price?**
+
+We will retrieve the appropriate data from the listings table.
+
+Here is the list of column names.
+
+```{r} 
+
+listings %>% colnames()
+
+```
+
+We make a new dataframe with the columns we need to answer this question.
+
+NYC has five boroughs: The Bronx, Brooklyn, Manhattan, Queens, and Staten Island. We see the attribute neighborhood_group_cleansed corresponds to borough. This will be renamed to borough.
+
+We will use availability_365 as a measure of availability. The column gives the days the listing is available out of 365 days. This will be renamed as availability. 
+
+We will use price as a measure of the cost of the listing. We will exclude security deposit, cleaning fee, administrative fees, etc. Note that this price is the price of renting the listing for one night.
+
+```{r}
+
+data <- listings %>%
+        select(id, borough = neighbourhood_group_cleansed, price, availability = availability_365)
+
+head(data)
+```
+
+## Cleaning the Data
+
+We notice that borough should be a factor, or categorical attribute. Here is the [documentation](https://readr.tidyverse.org/reference/parse_factor.html) for factor(). 
+
+Price should be a double. We will parse the string and convert it into a double.
+
+```{r}
+
+data$borough <- factor(data$borough, levels = c("Manhattan",
+        "Bronx", "Brooklyn", "Staten Island",
+        "Queens"))
+        
+# split on "."
+# returns list of char vectors
+split_string <- str_split(data$price, "\\.")
+
+# Turn list into vector
+split_vec <- unlist(split_string)
+
+# Vector is 200, 00, 159, 00
+# We want to remove all "00"
+remove <- "00"
+
+# split_vec %in% remove will return a logical vector
+# With true if the string is "00", false otherwise
+# Then, use the negation of the logical vector
+# to keep the price of the vector
+split_vec <- split_vec[! split_vec %in% remove]
+
+data$price <- parse_number(split_vec)
+
+
+head(data)
+
+```
+
+## Exploratory Data Analysis (EDA)
+
+If you are interested in EDA, you can see [Tukey's book](https://www.amazon.com/Exploratory-Data-Analysis-John-Tukey/dp/0201076160), this [description](https://www.stat.berkeley.edu/~brill/Papers/EDASage.pdf) of EDA, and a [summary](https://www.stat.berkeley.edu/~brill/Papers/life.pdf) of Tukey's life.
+
+
+### Availability
+
+We first plot the distribution of availability.
+
+
+```{r}
+
+data %>%
+  ggplot(aes(x = availability)) + 
+    geom_histogram()
+
+
+
+```
+
+We note that availability is heavily right skewed, meaning a majority of listings have low availability. This makes sense, since NYC is a very popular destination.
+
+Since availability is right skewed, we could consider doing a [log transform](http://www.hcbravo.org/IntroDataSci/bookdown-notes/eda-data-transformations.html#skewed-data). We will use the code here, made by [Professor Hector Corrada Bravo](http://www.hcbravo.org/).
+
+
+```{r}
+
+compute_skew_stat <- function(df, attribute) {
+  attribute <- enquo(attribute)
+  
+  df %>%
+    summarize(med_attr=median(!!attribute, na.rm=TRUE), 
+              q1_attr=quantile(!!attribute, 1/4, na.rm=TRUE), 
+              q3_attr=quantile(!!attribute, 3/4, na.rm=TRUE)) %>%
+    mutate(d1 = med_attr - q1_attr, d2 = q3_attr - med_attr, skew_stat = d1 - d2) %>%
+    select(d1, d2, skew_stat)
+}
+
+data %>% compute_skew_stat(availability)
+
+```
+
+d1 is the $median - quantile1$. d2 is $quartile3 - median$. skew_stat is $d1 - d2$. Since d1 and d2 are significantly different, the dataset is most likely skewed [lecture notes](http://www.hcbravo.org/IntroDataSci/bookdown-notes/exploratory-data-analysis-summary-statistics.html#skew). 
+
+We would like to reduce data skew. *However, we notice that most values of availability are 0. The log of 0 is undefined, thus a log transform is probably not applicable to this data.*
+
+We are unable to resolve the skewness for availability, but this is an important fact to keep in mind during downstream analysis.
+
+
+### Price
+
+We plot the histogram for price.
+
+```{r}
+
+data %>%
+  ggplot(aes(x = price)) + 
+    geom_histogram()
+
+```
+
+
+We see price is left skewed. Since we can expect price to be nonzero, we would like to apply a log transform.
+
+```{r}
+
+data %>% compute_skew_stat(price)
+
+```
+
+The large difference between d1 and d2 reaffirm that price is skewed. We apply log transform on price then plot the histogram.
+
+```{r}
+
+data <- data %>%
+            mutate(price_log = log2(price))
+
+data %>%
+  ggplot(aes(x = price_log)) + 
+    geom_histogram()
+
+```
+
+```{r}
+
+data %>% compute_skew_stat(price_log)
+
+```
+
+We see the skew of price has been reduced.
+
+### Exploring the Relationship
+
+We make a scatterplot of price(transformed) vs. availability. We see if there is a relationship between these two attributes.
+
+Since there are many entries, we will first only plot a random fraction.
+
+```{r}
+
+data %>%
+  sample_frac(.1) %>%
+  ggplot(aes(x=availability, y=price_log)) +
+    geom_point() +
+    labs(title="Price(transformed) vs. availability",
+         x = "availability",
+         y = "Price")
+
+```
+
+Next, we will plot listings for a specific boroughs.
+
+
+```{r}
+
+data %>%
+  ggplot(aes(x=availability, y=price_log)) +
+    geom_point() +
+    labs(title="Price(transformed) vs. Availability conditioned on Borough",
+         x = "availability",
+         y = "Price") +
+  facet_wrap(~borough)
+
+```
+
+From examining the plots, it looks like Bronx is most likely to have a linear relationship between availability and price. We make a plot of Bronx specifically and draw a linear regression line.
+
+
+```{r}
+
+data %>%
+  filter(borough == "Bronx") %>% 
+  ggplot(aes(x=availability, y=price_log)) +
+    geom_point() +
+    labs(title="Price(transformed) vs. Availability of Bronx",
+         x = "availability",
+         y = "Price") +
+  geom_smooth(method = lm)
+
+```
+
+The slope seems very low. However, this does not imply that there is no significant relationship between availability and price. We would like to know if there is a significant relationship. This question will hopefully be answered in the Analysis portion.
+
+
+### Remarks
+
+From above, availability is heavily skewed. We were able to reduce the skewness of price. In downstream analysis, we must keep in mind of these facts, as they will impact our analysis.
+
+
+## Analysis
+
+We want to determine if there exists a relationship between the availability of a listing and its price. **Specifically, we will only look at listings in the [Bronx](https://en.wikipedia.org/wiki/The_Bronx) borough.**
+
+**We will use linear regression to determine:**
+
+**1. In the Bronx, is there a significant linear relationship between availability and price?**
+
+**2. Can we make statements of the dependence of price on availability?**
+
+
+### Initial Thoughts
+
+We feel that availability should have an impact on price. If a listing is rarely available, this could indicate that the price is very good (cheap or low price). However, there are many other factors that impact price besides availability. For example, say a listing is has a very convenient location (close to restaurants, public transportation, etc.). The host could price this listing higher, knowing that the place has a very good location. Despite the price, renters could be wiling to pay this price to get the good location. In turn, the availability is low and the price is high. 
+
+Hopefully, the relationship between availability and price will become clearer in the following analysis.
+
+
+
+### Linear Regression
+
+We do linear regression to model price with availability as the predictor. Note that there are likely many other factors that impact price that are not being included in this analysis.
+
+For more on linear regression, see [CMSC320 lecture notes](http://www.hcbravo.org/IntroDataSci/bookdown-notes/linear-regression.html). In my opinion, I recommend Andrew Ng's online [Machine Learning](https://www.coursera.org/learn/machine-learning) to find out more on linear regression and machine learning in general. I also recommend these [notes](http://cs229.stanford.edu/notes/cs229-notes1.pdf) from Stanford's CS229 on linear regression.
+
+
+```{r}
+
+bronx_data <- data %>% 
+                filter(borough == "Bronx")
+
+bronx_fit <- lm(price ~ availability, data = bronx_data)
+
+bronx_fit_stats <- bronx_fit %>% tidy()
+
+bronx_fit_stats
+
+
+```
+
+### Hypothesis Testing
+
+We will see if there is a relationship between these two attributes. We state the null and alternative hypotheses.
+
+$H_0$ : There *is not* a significant relationship between availability and price.
+
+$H_a$ : There *is* a significant relationship between availability and price.
+
+We will test at the five percent significance level ($\alpha = 0.05$).
+
+From the table above, we note that p-value is approximately $0.01295$. This is less than $\alpha$. Therefore, we reject the null hypothesis of no relationship.
+
+For more on hypothesis testing within linear regression, see [this section](http://www.hcbravo.org/IntroDataSci/bookdown-notes/linear-regression.html#inference-1) of UMD CMSC320 lecture notes.
+
+
+### Interpretation of Model
+
+For now, let us assume the model meets the assumptions of linear repression. Then, we can make statements on the model.
+
+From the model, we look at the intercept $\hat{\beta_0} = 74.76297055$ and the slope $\hat{\beta_1} = 0.05878498$ 
+
+Based on this model, on average, a listing has is never available (availability = 0) has a listing price of about \$75 per night. 
+
+On average, holding all other factors constant, for each additional day that the listing is available, its price increases by \$0.0588, or around six cents. In other words, listings that are not as available tend to be cheaper.
+
+
+
+### Evaluation
+
+We want to see if model actually meets the assumptions of linear regression. See [lecture notes](http://www.hcbravo.org/IntroDataSci/bookdown-notes/linear-regression.html#issues-with-linear-regression) for more information on assumptions of linear regression.
+
+
+We will plot a graph of residuals vs the fitted values. This will allow us to see if the linear relationship is a good estimate of the relationship between availability and price.
+
+```{r}
+
+augmented_bronx <- bronx_fit %>% augment()
+
+augmented_bronx %>% head()
+
+augmented_bronx %>% 
+  ggplot(aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_smooth() + 
+  labs(title = "Residuals vs. Fitted Values", x = "Fitted Values", y = "Residuals")
+
+```
+
+Looking at the plot, almost all of the residual values are near 0. Furthermore, there does not appear to be a trend within the residuals. However, some residuals are extremely high. These outliers are very few, so the linear model appears to perform well.
+
+
+Based on this simple examination, the linear model appears to fit the values well, and thus we are able to make inferential statements from the model. However, to be more thorough, more exploration into the linear model is necessary.
+
+## Conclusion
+
+### Summary
+We obtained the Airbnb data and cleaned it. Based on initial examination of the data, we wanted to examine the relationship of availability and price. After making plots, we decided to limit our scope to the Bronx borough. We explored the relationship between availability and price of listings in the Bronx. From the analysis, we see that there is a significant relationship between availability and price, and we were able to make statements on the effect of availability on price.
+
+### Statements
+
+We saw that a listing that is never available has a listing price of about \$75 dollars per night. On average, for every day that the listing is available, the listing price increases by around \$0.06 per night. 
+
+From this, we can make some general (high level) statements. In the Bronx, listings that are less popular tend to be priced higher. Listings that are priced low tend to be booked more often. A listing of $75 dollars per night tends to be on the cheaper side of listings in the Bronx, since these listings are often booked. 
+
+Something that can be explored is the difference in price between Airbnb listings and hotels in the Bronx. We searched [Google Maps](https://www.google.com/maps/search/bronx+hotels/@40.7864471,-73.947883,13z) for hotels in the Bronx. From initial, rudimentary examination, these hotels tend to charge \$118 to \$212 per night.
+
+We see that Airbnb listings are cheaper than the typical hotel stay in the Bronx. The cheap price of lodging that Airbnb offers, compared to hotels, is likely an reason for Airbnb's success.
+
+### Remarks
+
+Again, we note that there are many other factors impacting price, such as location, number of bedrooms and bathrooms, amenities, etc. We also note that availability is heavily right skewed.
+
+## Future Work
+
+In our analysis portion, we only examined the relationship between availability and price in the Bronx borough. Future work could entail determining the relationship between these attributes in other boroughs.
+
+We also know that price is not only determined by availability. Future analysis could incorporate other attributes, such as number of bedrooms and bathrooms, [superhost](https://www.airbnb.com/superhost) status, number of amenities, etc. 
+
+
+The listing data also has information on reviews. This data can be further examined. We could explore if reviews are significantly different in listings in certain boroughs versus others. 
+
+
+
+
+
+
+
+
